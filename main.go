@@ -324,8 +324,13 @@ func (m weeklyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "esc", "ctrl+c":
+		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "esc":
+			// Only quit if not in filter mode
+			if m.state == stateWeekly && m.list.FilterState() != list.Filtering {
+				return m, tea.Quit
+			}
 		}
 
 	case fetchTimetableMsg:
@@ -444,13 +449,27 @@ func (m weeklyModel) filterAnimeByDay(day time.Weekday) []list.Item {
 }
 
 func (m weeklyModel) updateListForDay() weeklyModel {
-	items := m.filterAnimeByDay(m.focusedDay)
+	var items []list.Item
+	
+	// If filtering is active, show all anime across all days
+	if m.list.FilterState() == list.Filtering || m.list.FilterValue() != "" {
+		// Show all anime when searching
+		for _, anime := range m.allAnime {
+			items = append(items, anime)
+		}
+	} else {
+		// Show only current day's anime when not searching
+		items = m.filterAnimeByDay(m.focusedDay)
+	}
 
 	// Recreate the list with new delegate
 	m.list = list.New(items, newItemDelegate(m.delegateKeys), m.width-4, m.height-6)
 
 	// Format day name with consistent width
 	dayName := fmt.Sprintf("%-9s", m.focusedDay.String())
+	if m.list.FilterState() == list.Filtering || m.list.FilterValue() != "" {
+		dayName = "All Days"
+	}
 	m.list.Title = dayName
 	m.list.Styles.Title = titleStyle
 	m.list.SetShowHelp(false)
