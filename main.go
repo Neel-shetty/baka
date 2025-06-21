@@ -27,14 +27,14 @@ var (
 			Padding(0, 1)
 
 	dayStyle = lipgloss.NewStyle().
-			Width(30).
+			Width(80).
 			Height(25).
 			Padding(1).
 			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("62"))
 
 	focusedDayStyle = lipgloss.NewStyle().
-			Width(30).
+			Width(80).
 			Height(25).
 			Padding(1).
 			BorderStyle(lipgloss.RoundedBorder()).
@@ -110,6 +110,8 @@ type weeklyModel struct {
 	keys         *listKeyMap
 	delegateKeys *delegateKeyMap
 	err          error
+	width        int
+	height       int
 }
 
 func initialModel(apiToken string) weeklyModel {
@@ -122,6 +124,8 @@ func initialModel(apiToken string) weeklyModel {
 		spinner:    s,
 		dailyLists: make(map[time.Weekday]list.Model),
 		focusedDay: time.Monday,
+		width:      80, // Set default width
+		height:     24, // Set default height
 	}
 }
 
@@ -129,6 +133,7 @@ func (m weeklyModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
 		fetchTimetableCmd,
+		tea.EnterAltScreen,
 	)
 }
 
@@ -194,7 +199,7 @@ func (m weeklyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Initialize all weekday lists
 		for day := time.Sunday; day <= time.Saturday; day++ {
-			dailyList := list.New([]list.Item{}, newItemDelegate(m.delegateKeys), 26, 20)
+			dailyList := list.New([]list.Item{}, newItemDelegate(m.delegateKeys), m.width-4, m.height-6)
 			dailyList.Title = day.String()
 			dailyList.Styles.Title = titleStyle
 			dailyList.SetShowHelp(false)
@@ -217,10 +222,14 @@ func (m weeklyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
 		if m.state == stateWeekly {
-			h, v := appStyle.GetFrameSize()
-			for _, dailyList := range m.dailyLists {
-				dailyList.SetSize(msg.Width-h, msg.Height-v)
+			// Update all daily lists to use full terminal size
+			for day := range m.dailyLists {
+				dailyList := m.dailyLists[day]
+				dailyList.SetSize(msg.Width-4, msg.Height-6) // Account for day indicator and help text
+				m.dailyLists[day] = dailyList
 			}
 		}
 		return m, nil
@@ -292,24 +301,39 @@ func (m weeklyModel) View() string {
 		return fmt.Sprintf("\n\n   %s Fetching anime timetable...\n\n   Press q to quit", m.spinner.View())
 
 	case stateWeekly:
-		// Create views for each day of the week
-		var dayViews []string
-		days := []time.Weekday{time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday, time.Saturday, time.Sunday}
-
-		for _, day := range days {
-			if dailyList, exists := m.dailyLists[day]; exists {
-				style := dayStyle
+		// Show only the current focused day
+		if dailyList, exists := m.dailyLists[m.focusedDay]; exists {
+			// Show day navigation indicator
+			days := []time.Weekday{time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday, time.Saturday, time.Sunday}
+			currentIndex := 0
+			for i, day := range days {
 				if day == m.focusedDay {
-					style = focusedDayStyle
+					currentIndex = i
+					break
 				}
-				dayViews = append(dayViews, style.Render(dailyList.View()))
 			}
+
+			dayIndicator := fmt.Sprintf("%s (%d/7)", m.focusedDay.String(), currentIndex+1)
+			dayIndicatorStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("205")).
+				Bold(true).
+				Align(lipgloss.Center).
+				Width(m.width)
+
+			// Center the list view without border, using full terminal width
+			centeredList := lipgloss.NewStyle().
+				Align(lipgloss.Center).
+				Width(m.width).
+				Render(dailyList.View())
+
+			helpText := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("241")).
+				Align(lipgloss.Center).
+				Width(m.width).
+				Render("← → / h l: navigate days • ↑↓: select anime • enter: choose • x: delete • q: quit")
+
+			return dayIndicatorStyle.Render(dayIndicator) + "\n" + centeredList + "\n" + helpText
 		}
-
-		weekView := lipgloss.JoinHorizontal(lipgloss.Top, dayViews...)
-		helpText := "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("← → / h l: navigate days • ↑↓: select anime • enter: choose • x: delete • q: quit")
-
-		return weekView + helpText
 	}
 
 	return ""
