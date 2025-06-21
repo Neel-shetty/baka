@@ -50,7 +50,38 @@ type animeItem struct {
 }
 
 func (i animeItem) Title() string {
-	return i.anime.Title
+	title := i.anime.Title
+	maxWidth := 50 // Set minimum width for consistency
+
+	if len(title) <= maxWidth {
+		// Pad shorter titles to maintain consistent width
+		return fmt.Sprintf("%-*s", maxWidth, title)
+	}
+
+	// Wrap longer titles to next line
+	var lines []string
+	remaining := title
+
+	for len(remaining) > 0 {
+		if len(remaining) <= maxWidth {
+			lines = append(lines, fmt.Sprintf("%-*s", maxWidth, remaining))
+			break
+		}
+
+		// Find a good break point (space, dash, etc.)
+		breakPoint := maxWidth
+		for j := maxWidth - 1; j >= maxWidth/2 && j < len(remaining); j-- {
+			if remaining[j] == ' ' || remaining[j] == '-' || remaining[j] == ':' {
+				breakPoint = j
+				break
+			}
+		}
+
+		lines = append(lines, fmt.Sprintf("%-*s", maxWidth, remaining[:breakPoint]))
+		remaining = strings.TrimSpace(remaining[breakPoint:])
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func (i animeItem) Description() string {
@@ -268,19 +299,34 @@ func (m weeklyModel) View() string {
 	switch m.state {
 	case stateLoading:
 		if m.err != nil {
-			return fmt.Sprintf("\n\n   Error: %v\n\n   Press q to quit", m.err)
+			errorText := fmt.Sprintf("Error: %v\n\nPress q to quit", m.err)
+			return lipgloss.NewStyle().
+				Align(lipgloss.Center, lipgloss.Center).
+				Width(m.width).
+				Height(m.height).
+				Render(errorText)
 		}
-		return fmt.Sprintf("\n\n   %s Fetching anime timetable...\n\n   Press q to quit", m.spinner.View())
+		loadingText := fmt.Sprintf("%s Fetching anime timetable...\n\nPress q to quit", m.spinner.View())
+		return lipgloss.NewStyle().
+			Align(lipgloss.Center, lipgloss.Center).
+			Width(m.width).
+			Height(m.height).
+			Render(loadingText)
 
 	case stateWeekly:
-		// Render the list model
-		helpText := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
-			Align(lipgloss.Center).
-			Width(m.width).
-			Render("↑↓: select anime • enter: choose • x: delete • q: quit")
+			// Center the list view
+			centeredList := lipgloss.NewStyle().
+				Align(lipgloss.Center).
+				Width(m.width).
+				Render(m.list.View())
 
-		return m.list.View() + "\n" + helpText
+			helpText := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("241")).
+				Align(lipgloss.Center).
+				Width(m.width).
+				Render("← → / h l: navigate days • ↑↓: select anime • enter: choose • x: delete • q: quit")
+
+			return centeredList + "\n" + helpText
 	}
 
 	return ""
@@ -299,7 +345,7 @@ func (m weeklyModel) filterAnimeByDay(day time.Weekday) []list.Item {
 func (m weeklyModel) updateListForDay() weeklyModel {
 	items := m.filterAnimeByDay(m.focusedDay)
 	m.list.SetItems(items)
-	
+
 	// Format day name with consistent width (9 characters - longest is "Wednesday")
 	dayName := fmt.Sprintf("%-9s", m.focusedDay.String())
 	m.list.Title = dayName
