@@ -428,8 +428,14 @@ func (m weeklyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.SetShowStatusBar(false)
 
 		// Set filter input width to match anime list width
-		m.list.Styles.FilterPrompt = lipgloss.NewStyle().Width(50)
-		m.list.Styles.FilterCursor = lipgloss.NewStyle().Width(50)
+		m.list.Styles.FilterPrompt = lipgloss.NewStyle().
+			Width(50).
+			MaxWidth(50).
+			Inline(true)
+		m.list.Styles.FilterCursor = lipgloss.NewStyle().
+			Width(50).
+			MaxWidth(50).
+			Inline(true)
 
 		m = m.updateListForDay()
 		return m, nil
