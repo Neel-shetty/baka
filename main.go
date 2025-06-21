@@ -209,7 +209,9 @@ func (m weeklyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Initialize the list
 		m.list = list.New([]list.Item{}, newItemDelegate(m.delegateKeys), m.width-4, m.height-6)
-		m.list.Title = m.focusedDay.String()
+		// Format initial day name with consistent width
+		dayName := fmt.Sprintf("%-9s", m.focusedDay.String())
+		m.list.Title = dayName
 		m.list.Styles.Title = titleStyle
 		m.list.SetShowHelp(false)
 		m.list.SetShowStatusBar(false)
@@ -297,7 +299,10 @@ func (m weeklyModel) filterAnimeByDay(day time.Weekday) []list.Item {
 func (m weeklyModel) updateListForDay() weeklyModel {
 	items := m.filterAnimeByDay(m.focusedDay)
 	m.list.SetItems(items)
-	m.list.Title = m.focusedDay.String()
+	
+	// Format day name with consistent width (9 characters - longest is "Wednesday")
+	dayName := fmt.Sprintf("%-9s", m.focusedDay.String())
+	m.list.Title = dayName
 	return m
 }
 
