@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-func newItemDelegate(keys *delegateKeyMap, useEnglish *bool) list.DefaultDelegate {
+func newItemDelegate(keys *delegateKeyMap) list.DefaultDelegate {
 	d := list.NewDefaultDelegate()
 
 	// Set consistent spacing for all items
@@ -22,7 +22,7 @@ func newItemDelegate(keys *delegateKeyMap, useEnglish *bool) list.DefaultDelegat
 		var title string
 
 		if i, ok := m.SelectedItem().(animeItem); ok {
-			title = i.TitleForDisplay(*useEnglish)
+			title = i.Title()
 		} else {
 			return nil
 		}

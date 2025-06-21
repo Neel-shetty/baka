@@ -50,20 +50,7 @@ type animeItem struct {
 }
 
 func (i animeItem) Title() string {
-	// This will be updated by the model's useEnglish flag
-	return i.anime.Title
-}
-
-func (i animeItem) TitleForDisplay(useEnglish bool) string {
-	var title string
-	if useEnglish {
-		title = strings.TrimSpace(i.anime.English)
-		if title == "" {
-			title = strings.TrimSpace(i.anime.Title) // fallback to original title
-		}
-	} else {
-		title = strings.TrimSpace(i.anime.Title) // use original title as default
-	}
+	title := strings.TrimSpace(i.anime.Title)
 
 	// Final fallback if everything is empty
 	if title == "" {
@@ -162,7 +149,6 @@ type weeklyModel struct {
 	err          error
 	width        int
 	height       int
-	useEnglish   bool // Switch between English and original Title
 }
 
 func initialModel(apiToken string) weeklyModel {
@@ -174,17 +160,15 @@ func initialModel(apiToken string) weeklyModel {
 	currentDay := time.Now().Weekday()
 
 	delegateKeys := newDelegateKeyMap()
-	useEnglish := false
 
 	return weeklyModel{
 		state:      stateLoading,
 		spinner:    s,
 		allAnime:   []animeItem{},
-		list:       list.New([]list.Item{}, newItemDelegate(delegateKeys, &useEnglish), 80, 24),
+		list:       list.New([]list.Item{}, newItemDelegate(delegateKeys), 80, 24),
 		focusedDay: currentDay,
 		width:      80,
 		height:     24,
-		useEnglish: useEnglish,
 	}
 }
 
@@ -262,7 +246,7 @@ func (m weeklyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Initialize the list
-		m.list = list.New([]list.Item{}, newItemDelegate(m.delegateKeys, &m.useEnglish), m.width-4, m.height-6)
+		m.list = list.New([]list.Item{}, newItemDelegate(m.delegateKeys), m.width-4, m.height-6)
 		// Format initial day name with consistent width
 		dayName := fmt.Sprintf("%-9s", m.focusedDay.String())
 		m.list.Title = dayName
@@ -306,11 +290,6 @@ func (m weeklyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focusedDay = m.getNextDay()
 				m = m.updateListForDay()
 				return m, nil
-			case "t":
-				m.useEnglish = !m.useEnglish
-				 // Force refresh by updating the list for the current day
-				m = m.updateListForDay()
-				return m, nil
 			}
 		}
 
@@ -352,7 +331,7 @@ func (m weeklyModel) View() string {
 			Foreground(lipgloss.Color("241")).
 			Align(lipgloss.Center).
 			Width(m.width).
-			Render("← → / h l: navigate days • t: toggle Original/English • ↑↓: select anime • enter: choose • x: delete • q: quit")
+			Render("← → / h l: navigate days • ↑↓: select anime • enter: choose • x: delete • q: quit")
 
 		return centeredList + "\n" + helpText
 	}
@@ -372,17 +351,17 @@ func (m weeklyModel) filterAnimeByDay(day time.Weekday) []list.Item {
 
 func (m weeklyModel) updateListForDay() weeklyModel {
 	items := m.filterAnimeByDay(m.focusedDay)
-	
-	// Recreate the list with new delegate to ensure title format updates
-	m.list = list.New(items, newItemDelegate(m.delegateKeys, &m.useEnglish), m.width-4, m.height-6)
-	
+
+	// Recreate the list with new delegate
+	m.list = list.New(items, newItemDelegate(m.delegateKeys), m.width-4, m.height-6)
+
 	// Format day name with consistent width
 	dayName := fmt.Sprintf("%-9s", m.focusedDay.String())
 	m.list.Title = dayName
 	m.list.Styles.Title = titleStyle
 	m.list.SetShowHelp(false)
 	m.list.SetShowStatusBar(false)
-	
+
 	return m
 }
 
