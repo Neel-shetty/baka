@@ -4,16 +4,25 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
-func newItemDelegate(keys *delegateKeyMap) list.DefaultDelegate {
+func newItemDelegate(keys *delegateKeyMap, useEnglish *bool) list.DefaultDelegate {
 	d := list.NewDefaultDelegate()
+
+	// Set consistent spacing for all items
+	d.SetSpacing(1)
+	d.ShowDescription = true
+
+	// Override the render function to use correct title format
+	d.Styles.SelectedTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
+	d.Styles.NormalTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
 
 	d.UpdateFunc = func(msg tea.Msg, m *list.Model) tea.Cmd {
 		var title string
 
 		if i, ok := m.SelectedItem().(animeItem); ok {
-			title = i.Title()
+			title = i.TitleForDisplay(*useEnglish)
 		} else {
 			return nil
 		}
