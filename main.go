@@ -427,7 +427,10 @@ func (m weeklyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.SetShowHelp(false)
 		m.list.SetShowStatusBar(false)
 
-		// Filter and show only current day's anime
+		// Set filter input width to match anime list width
+		m.list.Styles.FilterPrompt = lipgloss.NewStyle().Width(50)
+		m.list.Styles.FilterCursor = lipgloss.NewStyle().Width(50)
+
 		m = m.updateListForDay()
 		return m, nil
 
@@ -456,19 +459,38 @@ func (m weeklyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg, ok := msg.(tea.KeyMsg); ok {
 			switch msg.String() {
 			case "left", "h":
-				m.focusedDay = m.getPreviousDay()
-				m = m.updateListForDay()
-				return m, nil
+				// Don't navigate if filtering is active
+				if m.list.FilterState() != list.Filtering {
+					m.focusedDay = m.getPreviousDay()
+					m = m.updateListForDay()
+					return m, nil
+				}
 			case "right", "l":
-				m.focusedDay = m.getNextDay()
-				m = m.updateListForDay()
-				return m, nil
+				// Don't navigate if filtering is active
+				if m.list.FilterState() != list.Filtering {
+					m.focusedDay = m.getNextDay()
+					m = m.updateListForDay()
+					return m, nil
+				}
+			case "/":
+				// When starting to filter, load all anime
+				m = m.loadAllAnimeForFiltering()
+				// Let the list handle the filter key
 			}
 		}
 
 		// Update the list model
 		var cmd tea.Cmd
-		m.list, cmd = m.list.Update(msg)
+		newListModel, cmd := m.list.Update(msg)
+
+		// Check if filter state changed
+		if newListModel.FilterState() != m.list.FilterState() || newListModel.FilterValue() != m.list.FilterValue() {
+			m.list = newListModel
+			m = m.updateListBasedOnFilterState()
+			return m, cmd
+		}
+
+		m.list = newListModel
 		return m, cmd
 	}
 
@@ -536,8 +558,22 @@ func (m weeklyModel) updateListForDay() weeklyModel {
 		items = m.filterAnimeByDay(m.focusedDay)
 	}
 
+	// Store current filter state before recreating list
+	currentFilter := m.list.FilterValue()
+	isFiltering := m.list.FilterState() == list.Filtering
+
 	// Recreate the list with new delegate
 	m.list = list.New(items, newItemDelegate(m.delegateKeys), m.width-4, m.height-6)
+
+	// Restore filter state if it was active
+	if currentFilter != "" {
+		m.list.SetFilteringEnabled(true)
+		// Trigger filtering mode and restore filter value
+		if isFiltering {
+			// This will put the list back into filtering mode
+			m.list.SetShowFilter(true)
+		}
+	}
 
 	// Format day name with consistent width
 	dayName := fmt.Sprintf("%-9s", m.focusedDay.String())
@@ -576,6 +612,40 @@ func (m weeklyModel) getNextDay() time.Weekday {
 		}
 	}
 	return time.Monday
+}
+
+func (m weeklyModel) loadAllAnimeForFiltering() weeklyModel {
+	// Load all anime from all days when starting to filter
+	var items []list.Item
+	for _, anime := range m.allAnime {
+		items = append(items, anime)
+	}
+
+	// Update the list with all anime and set title to "All Days"
+	m.list.SetItems(items)
+	m.list.Title = "All Days"
+	m.list.SetFilteringEnabled(true)
+
+	return m
+}
+
+func (m weeklyModel) updateListBasedOnFilterState() weeklyModel {
+	if m.list.FilterState() == list.Filtering || m.list.FilterValue() != "" {
+		// When filtering, show all anime from all days
+		var items []list.Item
+		for _, anime := range m.allAnime {
+			items = append(items, anime)
+		}
+		m.list.SetItems(items)
+		m.list.Title = "All Days"
+	} else {
+		// When not filtering, show only current day's anime
+		items := m.filterAnimeByDay(m.focusedDay)
+		m.list.SetItems(items)
+		dayName := fmt.Sprintf("%-9s", m.focusedDay.String())
+		m.list.Title = dayName
+	}
+	return m
 }
 
 type MediaType struct {
