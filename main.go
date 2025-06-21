@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -204,7 +205,66 @@ func getSystemTimezone() string {
 	return "Asia/Kolkata" // Fallback to a default timezone
 }
 
+func getCacheFilePath() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "anime_cache.json" // fallback to current directory
+	}
+	return filepath.Join(homeDir, ".cache", "baka", "anime_schedule.json")
+}
+
+func saveTimetableCache(timetables []AnimeTimetable) error {
+	cacheFile := getCacheFilePath()
+
+	// Create cache directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(cacheFile), 0755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(timetables, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(cacheFile, data, 0644)
+}
+
+func loadTimetableCache() ([]AnimeTimetable, error) {
+	cacheFile := getCacheFilePath()
+
+	data, err := os.ReadFile(cacheFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var timetables []AnimeTimetable
+	if err := json.Unmarshal(data, &timetables); err != nil {
+		return nil, err
+	}
+
+	return timetables, nil
+}
+
+func isCacheValid() bool {
+	cacheFile := getCacheFilePath()
+
+	info, err := os.Stat(cacheFile)
+	if err != nil {
+		return false
+	}
+
+	// Cache is valid if it's less than 1 hour old
+	return time.Since(info.ModTime()) < time.Hour
+}
+
 func fetchTimetableCmd() tea.Msg {
+	// Try to load from cache first
+	if isCacheValid() {
+		if cachedTimetables, err := loadTimetableCache(); err == nil {
+			return fetchTimetableMsg(cachedTimetables)
+		}
+	}
+
 	apiToken, success := getEnvVariable("ANIMESCHEDULE_TOKEN")
 	if !success {
 		return errMsg(fmt.Errorf("ANIMESCHEDULE_TOKEN environment variable not set"))
@@ -221,6 +281,12 @@ func fetchTimetableCmd() tea.Msg {
 	timetable, err := fetchTimetables(apiToken, options)
 	if err != nil {
 		return errMsg(err)
+	}
+
+	// Save to cache
+	if err := saveTimetableCache(timetable); err != nil {
+		// Don't fail the whole operation if cache save fails
+		fmt.Printf("Warning: Failed to save cache: %v\n", err)
 	}
 
 	return fetchTimetableMsg(timetable)
