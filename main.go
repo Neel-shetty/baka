@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -97,8 +98,81 @@ func (i animeItem) Description() string {
 		i.anime.AirType)
 }
 
+// Fuzzy search scoring function
+func fuzzyScore(query, text string) int {
+	query = strings.ToLower(query)
+	text = strings.ToLower(text)
+
+	if query == "" {
+		return 1000 // High score for empty query
+	}
+
+	if strings.Contains(text, query) {
+		// Exact substring match gets high score
+		return 100 + (100 - len(query))
+	}
+
+	// Calculate fuzzy match score
+	score := 0
+	queryRunes := []rune(query)
+	textRunes := []rune(text)
+
+	queryIndex := 0
+	for textIndex, textRune := range textRunes {
+		if queryIndex < len(queryRunes) && unicode.ToLower(textRune) == unicode.ToLower(queryRunes[queryIndex]) {
+			// Match found - give points based on position and consecutiveness
+			positionBonus := max(0, 50-textIndex)
+			score += 10 + positionBonus
+			queryIndex++
+		}
+	}
+
+	// Bonus for matching all characters
+	if queryIndex == len(queryRunes) {
+		score += 20
+	}
+
+	return score
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func (i animeItem) FilterValue() string {
+	// Use title for fuzzy matching
 	return i.anime.Title
+}
+
+// Custom filter function for fuzzy search
+func fuzzyFilter(term string, targets []string) []list.Rank {
+	var ranks []list.Rank
+
+	for i, target := range targets {
+		score := fuzzyScore(term, target)
+		if score > 0 {
+			ranks = append(ranks, list.Rank{
+				Index:          i,
+				MatchedIndexes: nil, // We'll let the list handle highlighting
+			})
+		}
+	}
+
+	// Sort by score (higher scores first)
+	for i := 0; i < len(ranks)-1; i++ {
+		for j := i + 1; j < len(ranks); j++ {
+			scoreI := fuzzyScore(term, targets[ranks[i].Index])
+			scoreJ := fuzzyScore(term, targets[ranks[j].Index])
+			if scoreI < scoreJ {
+				ranks[i], ranks[j] = ranks[j], ranks[i]
+			}
+		}
+	}
+
+	return ranks
 }
 
 type listKeyMap struct {
@@ -450,7 +524,7 @@ func (m weeklyModel) filterAnimeByDay(day time.Weekday) []list.Item {
 
 func (m weeklyModel) updateListForDay() weeklyModel {
 	var items []list.Item
-	
+
 	// If filtering is active, show all anime across all days
 	if m.list.FilterState() == list.Filtering || m.list.FilterValue() != "" {
 		// Show all anime when searching
