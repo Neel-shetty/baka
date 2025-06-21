@@ -180,14 +180,42 @@ func (m weeklyModel) Init() tea.Cmd {
 	)
 }
 
+func getSystemTimezone() string {
+	// Method 1: Try to get timezone from environment variable
+	if timezone := os.Getenv("TZ"); timezone != "" {
+		return timezone
+	}
+
+	// Method 2: Try to resolve symlink /etc/localtime (Linux/macOS)
+	if link, err := os.Readlink("/etc/localtime"); err == nil {
+		if strings.Contains(link, "zoneinfo/") {
+			parts := strings.Split(link, "zoneinfo/")
+			if len(parts) > 1 {
+				return parts[1]
+			}
+		}
+	}
+
+	// Method 3: Try to read from /etc/timezone (Linux)
+	if data, err := os.ReadFile("/etc/timezone"); err == nil {
+		return strings.TrimSpace(string(data))
+	}
+
+	return "Asia/Kolkata" // Fallback to a default timezone
+}
+
 func fetchTimetableCmd() tea.Msg {
 	apiToken, success := getEnvVariable("ANIMESCHEDULE_TOKEN")
 	if !success {
 		return errMsg(fmt.Errorf("ANIMESCHEDULE_TOKEN environment variable not set"))
 	}
 
+	// Get system timezone in proper format
+	timezone := getSystemTimezone()
+
 	options := map[string]any{
 		"airType": "sub",
+		"tz":      timezone,
 	}
 
 	timetable, err := fetchTimetables(apiToken, options)
