@@ -105,7 +105,8 @@ const (
 type weeklyModel struct {
 	state        appState
 	spinner      spinner.Model
-	dailyLists   map[time.Weekday]list.Model
+	allAnime     []animeItem
+	list         list.Model
 	focusedDay   time.Weekday
 	keys         *listKeyMap
 	delegateKeys *delegateKeyMap
@@ -119,13 +120,17 @@ func initialModel(apiToken string) weeklyModel {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
+	// Set focused day to current day
+	currentDay := time.Now().Weekday()
+
 	return weeklyModel{
 		state:      stateLoading,
 		spinner:    s,
-		dailyLists: make(map[time.Weekday]list.Model),
-		focusedDay: time.Monday,
-		width:      80, // Set default width
-		height:     24, // Set default height
+		allAnime:   []animeItem{},
+		list:       list.New([]list.Item{}, newItemDelegate(newDelegateKeyMap()), 80, 24),
+		focusedDay: currentDay,
+		width:      80,
+		height:     24,
 	}
 }
 
@@ -197,24 +202,20 @@ func (m weeklyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.keys = newListKeyMap()
 		m.delegateKeys = newDelegateKeyMap()
 
-		// Initialize all weekday lists
-		for day := time.Sunday; day <= time.Saturday; day++ {
-			dailyList := list.New([]list.Item{}, newItemDelegate(m.delegateKeys), m.width-4, m.height-6)
-			dailyList.Title = day.String()
-			dailyList.Styles.Title = titleStyle
-			dailyList.SetShowHelp(false)
-			dailyList.SetShowStatusBar(false)
-			m.dailyLists[day] = dailyList
+		// Populate allAnime slice with anime
+		for _, anime := range msg {
+			m.allAnime = append(m.allAnime, animeItem{anime: anime})
 		}
 
-		// Populate daily lists with anime
-		for _, anime := range msg {
-			weekday := anime.EpisodeDate.Weekday()
-			if dailyList, exists := m.dailyLists[weekday]; exists {
-				dailyList.InsertItem(len(dailyList.Items()), animeItem{anime: anime})
-				m.dailyLists[weekday] = dailyList
-			}
-		}
+		// Initialize the list
+		m.list = list.New([]list.Item{}, newItemDelegate(m.delegateKeys), m.width-4, m.height-6)
+		m.list.Title = m.focusedDay.String()
+		m.list.Styles.Title = titleStyle
+		m.list.SetShowHelp(false)
+		m.list.SetShowStatusBar(false)
+
+		// Filter and show only current day's anime
+		m = m.updateListForDay()
 		return m, nil
 
 	case errMsg:
@@ -225,12 +226,8 @@ func (m weeklyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		if m.state == stateWeekly {
-			// Update all daily lists to use full terminal size
-			for day := range m.dailyLists {
-				dailyList := m.dailyLists[day]
-				dailyList.SetSize(msg.Width-4, msg.Height-6) // Account for day indicator and help text
-				m.dailyLists[day] = dailyList
-			}
+			// Update the list model to use full terminal size
+			m.list.SetSize(msg.Width-4, msg.Height-6) // Account for title and help text
 		}
 		return m, nil
 	}
@@ -247,23 +244,61 @@ func (m weeklyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "left", "h":
 				m.focusedDay = m.getPreviousDay()
+				m = m.updateListForDay()
 				return m, nil
 			case "right", "l":
 				m.focusedDay = m.getNextDay()
+				m = m.updateListForDay()
 				return m, nil
 			}
 		}
 
-		// Update the focused day's list
-		if dailyList, exists := m.dailyLists[m.focusedDay]; exists {
-			var cmd tea.Cmd
-			dailyList, cmd = dailyList.Update(msg)
-			m.dailyLists[m.focusedDay] = dailyList
-			return m, cmd
-		}
+		// Update the list model
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(msg)
+		return m, cmd
 	}
 
 	return m, nil
+}
+
+func (m weeklyModel) View() string {
+	switch m.state {
+	case stateLoading:
+		if m.err != nil {
+			return fmt.Sprintf("\n\n   Error: %v\n\n   Press q to quit", m.err)
+		}
+		return fmt.Sprintf("\n\n   %s Fetching anime timetable...\n\n   Press q to quit", m.spinner.View())
+
+	case stateWeekly:
+		// Render the list model
+		helpText := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241")).
+			Align(lipgloss.Center).
+			Width(m.width).
+			Render("↑↓: select anime • enter: choose • x: delete • q: quit")
+
+		return m.list.View() + "\n" + helpText
+	}
+
+	return ""
+}
+
+func (m weeklyModel) filterAnimeByDay(day time.Weekday) []list.Item {
+	var items []list.Item
+	for _, anime := range m.allAnime {
+		if anime.anime.EpisodeDate.Weekday() == day {
+			items = append(items, anime)
+		}
+	}
+	return items
+}
+
+func (m weeklyModel) updateListForDay() weeklyModel {
+	items := m.filterAnimeByDay(m.focusedDay)
+	m.list.SetItems(items)
+	m.list.Title = m.focusedDay.String()
+	return m
 }
 
 func (m weeklyModel) getPreviousDay() time.Weekday {
@@ -290,53 +325,6 @@ func (m weeklyModel) getNextDay() time.Weekday {
 		}
 	}
 	return time.Monday
-}
-
-func (m weeklyModel) View() string {
-	switch m.state {
-	case stateLoading:
-		if m.err != nil {
-			return fmt.Sprintf("\n\n   Error: %v\n\n   Press q to quit", m.err)
-		}
-		return fmt.Sprintf("\n\n   %s Fetching anime timetable...\n\n   Press q to quit", m.spinner.View())
-
-	case stateWeekly:
-		// Show only the current focused day
-		if dailyList, exists := m.dailyLists[m.focusedDay]; exists {
-			// Show day navigation indicator
-			days := []time.Weekday{time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday, time.Saturday, time.Sunday}
-			currentIndex := 0
-			for i, day := range days {
-				if day == m.focusedDay {
-					currentIndex = i
-					break
-				}
-			}
-
-			dayIndicator := fmt.Sprintf("%s (%d/7)", m.focusedDay.String(), currentIndex+1)
-			dayIndicatorStyle := lipgloss.NewStyle().
-				Foreground(lipgloss.Color("205")).
-				Bold(true).
-				Align(lipgloss.Center).
-				Width(m.width)
-
-			// Center the list view without border, using full terminal width
-			centeredList := lipgloss.NewStyle().
-				Align(lipgloss.Center).
-				Width(m.width).
-				Render(dailyList.View())
-
-			helpText := lipgloss.NewStyle().
-				Foreground(lipgloss.Color("241")).
-				Align(lipgloss.Center).
-				Width(m.width).
-				Render("← → / h l: navigate days • ↑↓: select anime • enter: choose • x: delete • q: quit")
-
-			return dayIndicatorStyle.Render(dayIndicator) + "\n" + centeredList + "\n" + helpText
-		}
-	}
-
-	return ""
 }
 
 type MediaType struct {
